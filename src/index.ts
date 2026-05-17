@@ -1,12 +1,25 @@
 import { resolve } from 'node:path';
+import { promises as fs } from 'node:fs';
 import { loadConfig } from './config/loader.js';
 import { initLogger } from './logger/index.js';
 import { Queue } from './queue/index.js';
 import { startWatcher } from './watcher/index.js';
 
 async function main(): Promise<void> {
+  // OPENAI_API_KEY の存在確認（未設定の場合は起動不可）
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('[JudgeFile] エラー: 環境変数 OPENAI_API_KEY が設定されていません。');
+    process.exit(1);
+  }
+
   const configPath = resolve(process.cwd(), 'config.json');
   const config = await loadConfig(configPath);
+
+  // reviewDir と routes の移動先ディレクトリを起動時に一括作成
+  const dirsToCreate = [config.reviewDir, ...Object.values(config.routes)];
+  for (const dir of dirsToCreate) {
+    await fs.mkdir(dir, { recursive: true });
+  }
 
   initLogger(config.logFile);
 

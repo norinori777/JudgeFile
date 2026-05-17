@@ -22,6 +22,26 @@ export interface ExtractedText {
   truncationWarning?: string; // maxChars で切り捨てた場合に設定
 }
 
+/** AI 分類結果 */
+export interface ClassificationResult {
+  category: string;
+  tags: string[];
+  summary: string;
+  confidentiality: 'low' | 'medium' | 'high';
+  confidence: number;
+  destination: string;
+}
+
+/** ファイル移動種別 */
+export type MoveType = 'auto' | 'review' | 'error';
+
+/** ルーティング決定 */
+export interface RouteDecision {
+  moveType: MoveType;
+  destDir: string;
+  reason?: string;
+}
+
 /** 監査ログに記録するイベント種別 */
 export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped';
 
@@ -36,5 +56,12 @@ export interface AuditLogEntry {
   filePath: string;
   durationMs?: number; // completed / failed 時に設定
   charCount?: number;  // completed 時に設定
-  error?: string;      // failed 時に設定（truncationWarning のコピーも含む）
+  error?: string;      // failed / review 時に設定（truncationWarning のコピーも含む）
+  // Round 2: AI 分類・ルーティング結果
+  category?: string;
+  confidence?: number;
+  tags?: string[];
+  confidentiality?: 'low' | 'medium' | 'high';
+  destination?: string;
+  moveType?: MoveType;
 }
