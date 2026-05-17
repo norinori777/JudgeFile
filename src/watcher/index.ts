@@ -7,8 +7,6 @@ import type { AuditLogEntry } from '../types/index.js';
 import { writeLog } from '../logger/index.js';
 import { Queue } from '../queue/index.js';
 
-const SUPPORTED_EXTENSIONS = new Set(['.txt', '.md']);
-
 /**
  * 監視フォルダの変更を検知し、.txt / .md ファイルを Queue に追加する。
  *
@@ -20,6 +18,7 @@ const SUPPORTED_EXTENSIONS = new Set(['.txt', '.md']);
 export function startWatcher(config: Config, queue: Queue): FSWatcher {
   // 重複検知用 Set（name + size + mtime のキーで管理）
   const seenKeys = new Set<string>();
+  const supportedExtensions = new Set(config.watchedExtensions);
 
   const watcher = chokidar.watch(config.watchDir, {
     depth: 0,
@@ -29,7 +28,7 @@ export function startWatcher(config: Config, queue: Queue): FSWatcher {
 
   watcher.on('add', async (filePath: string) => {
     const ext = extname(filePath).toLowerCase();
-    if (!SUPPORTED_EXTENSIONS.has(ext)) {
+    if (!supportedExtensions.has(ext)) {
       return;
     }
 

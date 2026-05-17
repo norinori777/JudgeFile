@@ -33,6 +33,11 @@ export const ConfigSchema = z.object({
 
   /** API タイムアウト（ミリ秒、5000–120000、デフォルト: 30000） */
   apiTimeoutMs: z.number().int().min(5_000).max(120_000).default(30_000),
+
+  // ── Round 3: PDF 拡張 ──
+
+  /** 監視対象とするファイル拡張子のリスト（デフォルト: ['.txt', '.md']） */
+  watchedExtensions: z.array(z.string().min(1)).default(['.txt', '.md']),
 });
 
 /** ConfigSchema から推論した型 */

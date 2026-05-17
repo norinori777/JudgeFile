@@ -3,6 +3,7 @@ import type { Config } from '../config/schema.js';
 import type { ExtractedText } from '../types/index.js';
 import { extractTxt } from './txt.js';
 import { extractMd } from './md.js';
+import { extractPdf } from './pdf.js';
 
 /**
  * ファイルの拡張子に基づいて適切な抽出器に処理を委譲する。
@@ -18,6 +19,8 @@ export async function extract(filePath: string, config: Config): Promise<Extract
       return extractTxt(filePath, config);
     case '.md':
       return extractMd(filePath, config);
+    case '.pdf':
+      return extractPdf(filePath, config);
     default:
       throw new Error(`サポートされていない拡張子です: ${ext}`);
   }
