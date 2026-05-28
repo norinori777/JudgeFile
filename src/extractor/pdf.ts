@@ -1,10 +1,14 @@
 import { readFile } from 'node:fs/promises';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Config } from '../config/schema.js';
 import type { ExtractedText } from '../types/index.js';
 
-// Node.js ではウェブワーカー不要のため無効化する（research.md §1）
-GlobalWorkerOptions.workerSrc = '';
+// pdfjs-dist v5 では空文字列不可。実際のワーカーファイルの file:// URL を指定する（research.md §1）
+const _require = createRequire(import.meta.url);
+const _workerPath = _require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+GlobalWorkerOptions.workerSrc = pathToFileURL(_workerPath).href;
 
 /**
  * PDF ファイルのテキスト層を全ページ抽出し、ページ間を \n\n で結合して返す。
