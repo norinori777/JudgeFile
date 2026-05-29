@@ -17,19 +17,24 @@ export const ClassificationResultSchema = z.object({
 });
 
 /**
- * AI へ送るシステムプロンプト。
- * カテゴリの候補リストは設けず、内容に基づいて自由に分類する。
+ * AI へ送るシステムプロンプトを生成する。
+ * routeCategories が与えられた場合、カテゴリ一覧を動的に注入して AI の選択を誘導する（FR-001）。
+ * routeCategories が空の場合は既存相当のプロンプトを返す。
  */
-export const SYSTEM_PROMPT = `あなたはファイル内容を分析して分類するアシスタントです。
+export function buildSystemPrompt(routeCategories: string[]): string {
+  const categorySection = routeCategories.length > 0
+    ? `\n\n振り分け先カテゴリ一覧（できる限りこの中から選んでください）:\n${routeCategories.map(c => `- ${c}`).join('\n')}\n\nいずれにも当てはまらない場合のみ独自のカテゴリ名を使用してください。`
+    : '';
+
+  return `あなたはファイル内容を分析して分類するアシスタントです。
 与えられたテキストを読み、以下の JSON 形式のみで回答してください。他の文章は一切含めないでください。
 
 {
-  "category": "<書類の主カテゴリ（例: 契約書、請求書、技術仕様書、メモなど）>",
+  "category": "<書類の主カテゴリ>",
   "tags": ["<関連タグ1>", "<関連タグ2>"],
   "summary": "<内容の簡潔な要約（100文字以内）>",
   "confidentiality": "<機密レベル: low / medium / high のいずれか>",
   "confidence": <分類の確信度 0.0〜1.0 の数値>,
-  "destination": "<推奨する振り分け先カテゴリ名（英数字とアンダースコアのみ）>"
+  "destination": "<推奨する振り分け先カテゴリ名>"
+}${categorySection}`;
 }
-
-分類に際してカテゴリの制約はありません。内容を最もよく表すカテゴリを自由に設定してください。`;

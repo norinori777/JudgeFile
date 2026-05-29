@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { Config } from '../config/schema.js';
 import type { ClassificationResult } from '../types/index.js';
-import { ClassificationResultSchema, SYSTEM_PROMPT } from './schema.js';
+import { buildSystemPrompt, ClassificationResultSchema } from './schema.js';
 
 /**
  * テキストを AI で分類して結果を返す。
@@ -14,13 +14,15 @@ export async function classify(text: string, config: Config): Promise<Classifica
     timeout: config.apiTimeoutMs,
   });
 
+  const systemPrompt = buildSystemPrompt(Object.keys(config.routes));
+
   let raw: string;
   try {
     const response = await client.chat.completions.create({
       model: config.model,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: text },
       ],
     });

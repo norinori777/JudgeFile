@@ -3,6 +3,9 @@ import { basename, extname, join, parse } from 'node:path';
 import type { Config } from '../config/schema.js';
 import type { ClassificationResult, RouteDecision } from '../types/index.js';
 
+/** 不一致時のフォールバック先カテゴリキー（FR-003） */
+const FALLBACK_ROUTE_KEY = 'その他';
+
 /**
  * ファイルを src から dest へ移動する。
  * クロスデバイス移動（EXDEV）の場合はコピー＋削除にフォールバックする。
@@ -50,18 +53,31 @@ export async function route(
   config: Config,
 ): Promise<RouteDecision> {
   const { category, confidence } = classification;
-  const autoDir = config.routes[category];
-  const isAuto = confidence >= config.confidenceThreshold && autoDir !== undefined;
+  const isHighConfidence = confidence >= config.confidenceThreshold;
+  const exactDir = config.routes[category];
+  const fallbackDir = config.routes[FALLBACK_ROUTE_KEY];
 
-  const destDir = isAuto ? autoDir : config.reviewDir;
-
-  // review になった理由を記録
+  // 優先度 1: 完全一致 — 設定済みカテゴリへ自動振り分け（FR-007）
+  // 優先度 2: 「その他」フォールバック — 不一致 + 「その他」存在 + 信頼スコア十分（FR-003）
+  // 優先度 3: review — 低信頼度 または「その他」未設定（FR-004/005）
+  let destDir: string;
+  let moveType: 'auto' | 'review';
   let reviewReason: string | undefined;
-  if (!isAuto) {
-    if (confidence < config.confidenceThreshold) {
+
+  if (isHighConfidence && exactDir !== undefined) {
+    destDir = exactDir;
+    moveType = 'auto';
+  } else if (isHighConfidence && category !== FALLBACK_ROUTE_KEY && fallbackDir !== undefined) {
+    destDir = fallbackDir;
+    moveType = 'auto';
+    reviewReason = `routes に category "${category}" の設定がないため「${FALLBACK_ROUTE_KEY}」へ振り分け`;
+  } else {
+    destDir = config.reviewDir;
+    moveType = 'review';
+    if (!isHighConfidence) {
       reviewReason = `信頼スコア不足 (confidence=${confidence} < threshold=${config.confidenceThreshold})`;
     } else {
-      reviewReason = `routes に category "${category}" の設定がありません`;
+      reviewReason = `routes に category "${category}" の設定がなく「${FALLBACK_ROUTE_KEY}」も未設定`;
     }
   }
 
@@ -74,7 +90,7 @@ export async function route(
   if (filePath === dest) {
     console.warn(`[Router] 移動元と移動先が同一のためスキップ: ${filePath}`);
     return {
-      moveType: isAuto ? 'auto' : 'review',
+      moveType,
       destDir,
       ...(reviewReason ? { reason: reviewReason } : {}),
     };
@@ -83,7 +99,7 @@ export async function route(
   await moveFile(filePath, dest);
 
   return {
-    moveType: isAuto ? 'auto' : 'review',
+    moveType,
     destDir: dest,
     ...(reviewReason ? { reason: reviewReason } : {}),
   };
