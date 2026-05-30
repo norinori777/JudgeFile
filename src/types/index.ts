@@ -43,6 +43,69 @@ export interface RouteDecision {
   reason?: string;
 }
 
+// ── Round 6: Office 文書対応と人間確認フロー ──
+
+/** review フォルダ内の 1 ファイル + AI 分類メタデータ（インメモリ） */
+export interface ReviewItem {
+  /** review フォルダ内のファイルパス（絶対パス） */
+  filePath: string;
+  /** 元ファイル名（表示用） */
+  originalName: string;
+  /** AI 分類候補 */
+  aiClassification: {
+    category: string;
+    tags: string[];
+    confidence: number;
+    confidentiality: 'low' | 'medium' | 'high';
+    /** AI 推奨振り分け先（routes のキー） */
+    destination: string;
+  };
+  /** review フォルダへの移動日時（ISO 8601） */
+  queuedAt: string;
+}
+
+/** オペレーターの確認結果 */
+export interface ReviewDecision {
+  /** 判断した日時（ISO 8601） */
+  reviewedAt: string;
+  /** 操作種別 */
+  action: 'approved' | 'corrected';
+  /** 最終的な分類 */
+  finalClassification: {
+    category: string;
+    tags: string[];
+    /** 振り分け先フォルダパス（絶対パス） */
+    destDir: string;
+  };
+}
+
+/** corrections.jsonl の 1 エントリ（JSONL 形式で永続化） */
+export interface CorrectionRecord {
+  /** 元ファイル名（review フォルダ内の名前） */
+  fileName: string;
+  /** 絶対パス（振り分け後） */
+  destFilePath: string;
+  /** AI 分類候補のスナップショット */
+  aiClassification: {
+    category: string;
+    tags: string[];
+    confidence: number;
+    confidentiality: 'low' | 'medium' | 'high';
+    destination: string;
+  };
+  /** 最終的な分類（承認時は AI 候補と同一、修正時は修正後の値） */
+  finalClassification: {
+    category: string;
+    tags: string[];
+    /** 最終振り分け先フォルダの絶対パス */
+    destDir: string;
+  };
+  /** approved: AI 分類をそのまま承認 / corrected: 分類を修正して承認 */
+  action: 'approved' | 'corrected';
+  /** オペレーターが承認した日時（ISO 8601） */
+  timestamp: string;
+}
+
 /** 監査ログに記録するイベント種別 */
 export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped';
 

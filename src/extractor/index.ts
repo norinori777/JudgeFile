@@ -5,6 +5,7 @@ import { extractTxt } from './txt.js';
 import { extractMd } from './md.js';
 import { extractPdf } from './pdf.js';
 import { extractImage } from './image.js';
+import { extractDocx, extractXlsx, extractPptx } from './office.js';
 
 /**
  * ファイルの拡張子に基づいて適切な抽出器に処理を委譲する。
@@ -26,6 +27,12 @@ export async function extract(filePath: string, config: Config): Promise<Extract
     case '.jpg':
     case '.jpeg':
       return extractImage(filePath, config); // FR-001 / FR-010
+    case '.docx':
+      return extractDocx(filePath, config);
+    case '.xlsx':
+      return extractXlsx(filePath, config);
+    case '.pptx':
+      return extractPptx(filePath, config);
     default:
       throw new Error(`サポートされていない拡張子です: ${ext}`);
   }

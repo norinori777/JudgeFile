@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 import type { Config } from '../config/schema.js';
 import type { AuditLogEntry } from '../types/index.js';
 import { extract } from '../extractor/index.js';
@@ -70,6 +71,27 @@ export class Queue {
         // 分類 → ルーティング
         const classification = await classify(result.text, this.config);
         const decision = await route(filePath, classification, this.config);
+
+        // FR-009a: review 移動時に .meta.json を保存する（テキスト本文は含めない）
+        if (decision.moveType === 'review') {
+          const metaPath = decision.destDir + '.meta.json';
+          const meta = {
+            filePath: decision.destDir,
+            originalName: basename(decision.destDir),
+            category: classification.category,
+            tags: classification.tags,
+            confidence: classification.confidence,
+            confidentiality: classification.confidentiality,
+            destination: classification.destination,
+            queuedAt: new Date().toISOString(),
+          };
+          try {
+            await fs.writeFile(metaPath, JSON.stringify(meta, null, 2) + '\n', 'utf-8');
+          } catch {
+            // meta.json の書き込み失敗はメイン処理を止めない
+            console.warn(`[Queue] meta.json 保存失敗: ${metaPath}`);
+          }
+        }
 
         const completedEntry: AuditLogEntry = {
           id: randomUUID(),
