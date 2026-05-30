@@ -20,6 +20,7 @@ export interface ExtractedText {
   text: string;
   charCount: number;
   truncationWarning?: string; // maxChars で切り捨てた場合に設定
+  ocrEngine?: string;         // OCR 処理を経た場合に設定（例: 'openai-vision'）
 }
 
 /** AI 分類結果 */
@@ -64,4 +65,5 @@ export interface AuditLogEntry {
   confidentiality?: 'low' | 'medium' | 'high';
   destination?: string;
   moveType?: MoveType;
+  ocrEngine?: string;          // OCR 処理を経たファイルにのみ付与（FR-011）
 }

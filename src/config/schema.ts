@@ -38,6 +38,11 @@ export const ConfigSchema = z.object({
 
   /** 監視対象とするファイル拡張子のリスト（デフォルト: ['.txt', '.md']） */
   watchedExtensions: z.array(z.string().min(1)).default(['.txt', '.md']),
+
+  // ── Round 4: 画像 OCR ──
+
+  /** 画像ファイルの最大サイズ（MB 単位、デフォルト: 10）。超過時は event: 'failed' で reviewDir へ移動 */
+  maxImageSizeMB: z.number().int().min(1).max(1000).default(10),
 });
 
 /** ConfigSchema から推論した型 */

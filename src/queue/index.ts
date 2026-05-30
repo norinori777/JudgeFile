@@ -88,6 +88,8 @@ export class Queue {
           // review になった場合は reason を error フィールドに記録（T010）
           ...(decision.reason ? { error: decision.reason } : {}),
           ...(result.truncationWarning && !decision.reason ? { error: result.truncationWarning } : {}),
+          // FR-011: OCR 処理を経たファイルにのみ ocrEngine を転記する
+          ...(result.ocrEngine ? { ocrEngine: result.ocrEngine } : {}),
         };
         writeLog(completedEntry);
       } catch (err) {

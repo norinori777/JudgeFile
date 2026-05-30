@@ -1,7 +1,7 @@
 # JudgeFile — 実装設計書
 
 > 最終更新: 2026-05-29  
-> 対象ブランチ: `003-pdf-extractor`（feature `004-route-best-match-fallback` 実装済み）
+> 対象ブランチ: `005-image-ocr-extractor`（feature `001`〜`005` 実装済み）
 
 ---
 
@@ -26,6 +26,7 @@
       - [src/extractor/index.ts（ディスパッチャ）](#srcextractorindextsディスパッチャ)
       - [src/extractor/txt.ts / md.ts](#srcextractortxtts--mdts)
       - [src/extractor/pdf.ts](#srcextractorpdfts)
+      - [src/extractor/image.ts（Round 4 新規）](#srcextractorimagetsround-4-新規)
     - [6.6 AI 分類 — src/classifier/](#66-ai-分類--srcclassifier)
       - [src/classifier/schema.ts](#srcclassifierschemats)
       - [src/classifier/index.ts](#srcclassifierindexts)
@@ -320,6 +321,7 @@ extract(filePath, config): Promise<ExtractedText>
 - `.txt` → `extractTxt`
 - `.md` → `extractMd`
 - `.pdf` → `extractPdf`
+- `.png` / `.jpg` / `.jpeg` → `extractImage`（Round 4 追加）
 - その他 → `throw new Error('サポートされていない拡張子です')`
 
 #### src/extractor/txt.ts / md.ts
@@ -342,6 +344,24 @@ GlobalWorkerOptions.workerSrc = pathToFileURL(_workerPath).href;
 
 全ページのテキストレイヤーを抽出し `\n\n` で結合。`maxChars` 超過時は切り捨て。
 
+#### src/extractor/image.ts（Round 4 新規）
+
+**`extractImage(filePath, config): Promise<ExtractedText>`**
+
+OpenAI Vision API（base64 インライン）を使って画像ファイルから OCR でテキストを抽出する。新規 npm パッケージは不要。
+
+**処理フロー**:
+1. `fs.stat()` でファイルサイズを確認— `maxImageSizeMB` 超過時は `Error` を throw（FR-006）
+2. `fs.readFile()` で読み込み base64 変換し `data:{mime};base64,{data}` URLを構築
+3. `chat.completions.create` で Vision API を呼び出し（OCR 専用固定プロンプト）
+4. `trim().replace(/\n{3,}/g, '\n\n')` で正規化（FR-002）
+5. `maxChars` 超過時は切り捨て `truncationWarning` を付与（FR-003）
+6. `ocrEngine: 'openai-vision'` を付与して `ExtractedText` を返す（FR-011）
+
+**エラー伝搭**: すべての例外は throw して Queue 層に委ねる（FR-007）。テキスト本文はこの関数外でログに書き出さない（FR-008）。
+
+**対応 MIME**: `.png` → `image/png`、`.jpg` / `.jpeg` → `image/jpeg`
+
 **返却型**: `ExtractedText`
 
 ```typescript
@@ -350,6 +370,7 @@ interface ExtractedText {
   text: string;           // メモリ内のみ（ログ書き出し禁止）
   charCount: number;
   truncationWarning?: string;
+  ocrEngine?: string;     // 'openai-vision' | undefined
 }
 ```
 
