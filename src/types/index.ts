@@ -129,4 +129,23 @@ export interface AuditLogEntry {
   destination?: string;
   moveType?: MoveType;
   ocrEngine?: string;          // OCR 処理を経たファイルにのみ付与（FR-011）
+  // Round 7: 契約情報抽出
+  contractSubject?: string | null;
+  contractPeriod?: ContractPeriod | null;
+  contractExtractionError?: string;
+}
+
+// ── Round 7: 契約情報抽出 ──
+
+/** 契約の規約期間 */
+export interface ContractPeriod {
+  start: string | null;
+  end: string | null;
+  note: string | null;
+}
+
+/** 契約書から抽出した契約情報 */
+export interface ContractInfo {
+  contractSubject: string | null;
+  contractPeriod: ContractPeriod;
 }

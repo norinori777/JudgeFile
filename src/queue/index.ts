@@ -7,6 +7,7 @@ import { extract } from '../extractor/index.js';
 import { writeLog } from '../logger/index.js';
 import { classify } from '../classifier/index.js';
 import { route, moveFile, resolveDestination } from '../router/index.js';
+import { extractContractInfo, updateMetaJson } from '../extractor/contract.js';
 import { promises as fs } from 'node:fs';
 
 export class Queue {
@@ -93,6 +94,29 @@ export class Queue {
           }
         }
 
+        // Round 7: 契約情報抽出（FR-001・FR-008・FR-009）
+        // moveFile() 完了後、契約書カテゴリかつエラー移動でない場合のみ実行する
+        let contractSubject: string | null | undefined;
+        let contractPeriod: { start: string | null; end: string | null; note: string | null } | null | undefined;
+        let contractExtractionError: string | undefined;
+
+        const contractLabel = (this.config.contractCategoryLabel ?? '契約書').toLowerCase();
+        if (
+          classification.category.toLowerCase() === contractLabel &&
+          decision.moveType !== 'error'
+        ) {
+          try {
+            const contractInfo = await extractContractInfo(result.text, this.config);
+            contractSubject = contractInfo.contractSubject;
+            contractPeriod = contractInfo.contractPeriod;
+            // FR-005: .meta.json に contractSubject・contractPeriod を追記する
+            await updateMetaJson(decision.destDir, contractInfo);
+          } catch (err) {
+            // FR-007: 抽出失敗はパイプラインを止めない
+            contractExtractionError = err instanceof Error ? err.message : String(err);
+          }
+        }
+
         const completedEntry: AuditLogEntry = {
           id: randomUUID(),
           event: 'completed',
@@ -112,6 +136,11 @@ export class Queue {
           ...(result.truncationWarning && !decision.reason ? { error: result.truncationWarning } : {}),
           // FR-011: OCR 処理を経たファイルにのみ ocrEngine を転記する
           ...(result.ocrEngine ? { ocrEngine: result.ocrEngine } : {}),
+          // FR-006: 契約情報（null 含む）を監査ログに記録する
+          ...(contractSubject !== undefined ? { contractSubject } : {}),
+          ...(contractPeriod !== undefined ? { contractPeriod } : {}),
+          // FR-007: 抽出エラー時のみ contractExtractionError を記録する
+          ...(contractExtractionError ? { contractExtractionError } : {}),
         };
         writeLog(completedEntry);
       } catch (err) {

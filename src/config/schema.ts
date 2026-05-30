@@ -43,6 +43,11 @@ export const ConfigSchema = z.object({
 
   /** 画像ファイルの最大サイズ（MB 単位、デフォルト: 10）。超過時は event: 'failed' で reviewDir へ移動 */
   maxImageSizeMB: z.number().int().min(1).max(1000).default(10),
+
+  // ── Round 7: 契約情報抽出 ──
+
+  /** 契約書カテゴリの正規ラベル（デフォルト: '契約書'）。大文字小文字を区別しない比較で使用する */
+  contractCategoryLabel: z.string().default('契約書'),
 });
 
 /** ConfigSchema から推論した型 */
