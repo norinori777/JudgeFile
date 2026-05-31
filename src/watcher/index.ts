@@ -24,6 +24,11 @@ export function startWatcher(config: Config, queue: Queue): FSWatcher {
     depth: 0,
     ignoreInitial: true,
     persistent: true,
+    // FR-009 (US2): 書き込み完了後のみキューに積む設計（書き込み途中ファイルはサイズ検証が不正確になるため）
+    awaitWriteFinish: {
+      stabilityThreshold: 2000,
+      pollInterval: 100,
+    },
   });
 
   watcher.on('add', async (filePath: string) => {

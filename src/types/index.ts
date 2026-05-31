@@ -107,7 +107,7 @@ export interface CorrectionRecord {
 }
 
 /** 監査ログに記録するイベント種別 */
-export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped';
+export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped' | 'rejected';
 
 /** イベントに対応する結果分類 */
 export type AuditResult = 'ok' | 'error' | 'skip';
@@ -135,6 +135,13 @@ export interface AuditLogEntry {
   contractSubject?: string | null;
   contractPeriod?: ContractPeriod | null;
   contractExtractionError?: string;
+  // Round 9: OWASPセキュリティ強化
+  securityRejection?: {
+    /** 拒否理由の短い識別子 */
+    reason: string;
+    /** 検証種別: 'path' | 'size' | 'mime' | 'circular' */
+    validationType: string;
+  };
 }
 
 // ── Round 7: 契約情報抽出 ──
@@ -150,4 +157,30 @@ export interface ContractPeriod {
 export interface ContractInfo {
   contractSubject: string | null;
   contractPeriod: ContractPeriod;
+}
+
+// ── Round 9: OWASPセキュリティ強化 ──
+
+/** セキュリティ検証の個別ステップ結果 */
+export interface ValidationDetail {
+  /** 検証種別 */
+  type: 'path' | 'size' | 'mime' | 'circular';
+  /** この検証が合格したか */
+  passed: boolean;
+  /** 失敗時の詳細メッセージ */
+  detail?: string;
+}
+
+/** パイプライン最前段のセキュリティ検証結果 */
+export interface SecurityValidationResult {
+  /** 全検証が合格した場合 true */
+  passed: boolean;
+  /** 拒否理由（passed: false の場合のみ設定） */
+  rejectionReason?: string;
+  /** 検査時のファイルサイズ（バイト） */
+  fileSizeBytes: number;
+  /** file-type が検出した MIME タイプ（テキスト系は undefined） */
+  detectedMimeType?: string;
+  /** 各検証ステップの詳細 */
+  validations: ValidationDetail[];
 }

@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import type { Config } from '../config/schema.js';
 import type { AuditLogEntry } from '../types/index.js';
 import { extract } from '../extractor/index.js';
+import { validateFileSecurity } from '../extractor/security.js';
 import { writeLog } from '../logger/index.js';
 import { classify } from '../classifier/index.js';
 import { route, moveFile, resolveDestination } from '../router/index.js';
@@ -60,6 +61,38 @@ export class Queue {
       writeLog(startedEntry);
 
       const startMs = Date.now();
+
+      // ── FR-009: パイプライン最前段のセキュリティ検証 ──
+      const secResult = await validateFileSecurity(filePath, this.config.watchDir, this.config);
+      if (!secResult.passed) {
+        // FR-010: 拒否ファイルを reviewDir へ移動し、元ファイルは削除・上書きしない
+        let rejectedDest: string | undefined;
+        try {
+          await fs.mkdir(this.config.reviewDir, { recursive: true });
+          rejectedDest = await resolveDestination(filePath, this.config.reviewDir);
+          if (filePath !== rejectedDest) {
+            await moveFile(filePath, rejectedDest);
+          }
+        } catch {
+          // reviewDir への移動失敗は無視して rejected ログのみ記録する
+        }
+        const rejectedEntry: AuditLogEntry = {
+          id: randomUUID(),
+          event: 'rejected',
+          timestamp: new Date().toISOString(),
+          filePath,
+          durationMs: Date.now() - startMs,
+          error: secResult.rejectionReason,
+          moveType: 'review',
+          ...(rejectedDest ? { destination: rejectedDest } : {}),
+          securityRejection: {
+            reason: secResult.rejectionReason ?? 'unknown',
+            validationType: secResult.validations.find(v => !v.passed)?.type ?? 'unknown',
+          },
+        };
+        writeLog(rejectedEntry);
+        return; // 以降の処理を中断
+      }
 
       try {
         const result = await extract(filePath, this.config);

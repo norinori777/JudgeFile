@@ -48,6 +48,16 @@ export const ConfigSchema = z.object({
 
   /** 契約書カテゴリの正規ラベル（デフォルト: '契約書'）。大文字小文字を区別しない比較で使用する */
   contractCategoryLabel: z.string().default('契約書'),
+
+  // ── Round 9: OWASPセキュリティ強化 ──
+
+  /** 監査ログでマスクするフィールド名のリスト（デフォルト: ["contractSubject", "contractPeriod"]） */
+  sensitiveFields: z.array(z.string()).default(['contractSubject', 'contractPeriod']),
+
+  /** ファイルタイプ別の最大サイズ（MB）。キー "default" が必須フォールバック。省略時は { default: 50 } */
+  maxFileSizeMB: z.object({ default: z.number().int().min(1).max(1000).default(50) })
+    .catchall(z.number().int().min(1).max(1000))
+    .default({ default: 50 }),
 });
 
 /** ConfigSchema から推論した型 */

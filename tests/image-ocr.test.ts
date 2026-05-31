@@ -62,6 +62,15 @@ vi.mock('node:fs', () => ({
   promises: { mkdir: mockFsMkdir },
 }));
 
+/** Queue.enqueue() のセキュリティ検証をバイパス（Queue のユニットテストでは常に passed にする） */
+vi.mock('../src/extractor/security.js', () => ({
+  validateFileSecurity: vi.fn().mockResolvedValue({
+    passed: true,
+    fileSizeBytes: 1024,
+    validations: [],
+  }),
+}));
+
 // ─── Imports（モック宣言の後に配置） ─────────────────────────────────────────
 
 import { extractImage } from '../src/extractor/image.js';

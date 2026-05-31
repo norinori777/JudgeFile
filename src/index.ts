@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { loadConfig } from './config/loader.js';
 import { initLogger } from './logger/index.js';
+import { validateConfigSecurity } from './config/validator.js';
 import { Queue } from './queue/index.js';
 import { startWatcher } from './watcher/index.js';
 
@@ -28,7 +29,10 @@ async function main(): Promise<void> {
     await fs.mkdir(dir, { recursive: true });
   }
 
-  initLogger(config.logFile);
+  initLogger(config.logFile, config.sensitiveFields);
+
+  // 起動時設定バリデーション: 循環参照チェック（FR-001b）
+  validateConfigSecurity(config);
 
   const queue = new Queue(config);
   const watcher = startWatcher(config, queue);
