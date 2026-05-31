@@ -11,8 +11,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Hoisted mock factories（vi.mock より先に定義が必要）──────────────────────
 
-const { mockCreate, mockStat, mockReadFile, mockFsMkdir } = vi.hoisted(() => ({
+const { mockCreate, mockModerationsCreate, mockStat, mockReadFile, mockFsMkdir } = vi.hoisted(() => ({
   mockCreate: vi.fn(),
+  mockModerationsCreate: vi.fn(),
   mockStat: vi.fn(),
   mockReadFile: vi.fn(),
   mockFsMkdir: vi.fn(),
@@ -20,10 +21,11 @@ const { mockCreate, mockStat, mockReadFile, mockFsMkdir } = vi.hoisted(() => ({
 
 // ─── Module mocks ────────────────────────────────────────────────────────────
 
-/** T007: Vision API モック */
+/** T007: Vision API モック / Queue の Moderation モック */
 vi.mock('openai', () => ({
   default: vi.fn().mockImplementation(() => ({
     chat: { completions: { create: mockCreate } },
+    moderations: { create: mockModerationsCreate },
   })),
 }));
 
@@ -103,6 +105,10 @@ const mockClassification = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockFsMkdir.mockResolvedValue(undefined);
+  // デフォルト: Moderation はフラグなし（Queue テストが classify まで到達できるよう）
+  mockModerationsCreate.mockResolvedValue({
+    results: [{ flagged: false, categories: { violence: false, hate: false, 'hate/threatening': false, 'self-harm': false, sexual: false, 'sexual/minors': false, 'violence/graphic': false } }],
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

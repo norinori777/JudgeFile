@@ -1,6 +1,7 @@
 import PQueue from 'p-queue';
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
+import OpenAI from 'openai';
 import type { Config } from '../config/schema.js';
 import type { AuditLogEntry } from '../types/index.js';
 import { extract } from '../extractor/index.js';
@@ -8,6 +9,7 @@ import { writeLog } from '../logger/index.js';
 import { classify } from '../classifier/index.js';
 import { route, moveFile, resolveDestination } from '../router/index.js';
 import { extractContractInfo, updateMetaJson } from '../extractor/contract.js';
+import { applySystemHardLimit, wrapWithDocumentTag, moderateText } from '../extractor/sanitize.js';
 import { promises as fs } from 'node:fs';
 
 export class Queue {
@@ -41,6 +43,12 @@ export class Queue {
    */
   enqueue(filePath: string): void {
     void this.pQueue.add(async () => {
+      // OpenAI クライアントを enqueue スコープで生成し moderateText / classify 両方で共用する
+      const client = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+        timeout: this.config.apiTimeoutMs,
+      });
+
       const startedAt = new Date().toISOString();
 
       const startedEntry: AuditLogEntry = {
@@ -69,8 +77,74 @@ export class Queue {
           return;
         }
 
+        // FR-007: システム上限（50,000 文字）を適用する（config.maxChars より優先）
+        const hardLimited = applySystemHardLimit(result.text);
+        const rawText = hardLimited.text;
+        const systemLimitWarning = hardLimited.warning;
+
+        // FR-004: Moderation API でポリシー違反チェック（生テキスト・タグエスケープ前）
+        let moderationCategories: string[] | undefined;
+        try {
+          const modResult = await moderateText(client, rawText);
+          if (modResult.flagged) {
+            // FR-005: フラグあり → fail-secure。classify() を呼ばず reviewDir へ移動
+            moderationCategories = modResult.categories;
+            let moderationDest: string | undefined;
+            try {
+              await fs.mkdir(this.config.reviewDir, { recursive: true });
+              moderationDest = await resolveDestination(filePath, this.config.reviewDir);
+              if (filePath !== moderationDest) {
+                await moveFile(filePath, moderationDest);
+              }
+            } catch {
+              // reviewDir への移動失敗は無視して failed ログのみ記録する
+            }
+            const blockedEntry: AuditLogEntry = {
+              id: randomUUID(),
+              event: 'failed',
+              timestamp: new Date().toISOString(),
+              filePath,
+              durationMs: Date.now() - startMs,
+              error: 'moderation_blocked',
+              moderationCategories,
+              moveType: 'error',
+              ...(moderationDest ? { destination: moderationDest } : {}),
+            };
+            writeLog(blockedEntry);
+            return;
+          }
+        } catch (moderationErr) {
+          // FR-006: Moderation 例外（タイムアウト含む） → fail-secure
+          const moderationErrMsg = moderationErr instanceof Error ? moderationErr.message : String(moderationErr);
+          let moderationDest: string | undefined;
+          try {
+            await fs.mkdir(this.config.reviewDir, { recursive: true });
+            moderationDest = await resolveDestination(filePath, this.config.reviewDir);
+            if (filePath !== moderationDest) {
+              await moveFile(filePath, moderationDest);
+            }
+          } catch {
+            // reviewDir への移動失敗は無視
+          }
+          const moderationErrorEntry: AuditLogEntry = {
+            id: randomUUID(),
+            event: 'failed',
+            timestamp: new Date().toISOString(),
+            filePath,
+            durationMs: Date.now() - startMs,
+            error: `moderation_error: ${moderationErrMsg}`,
+            moveType: 'error',
+            ...(moderationDest ? { destination: moderationDest } : {}),
+          };
+          writeLog(moderationErrorEntry);
+          return;
+        }
+
+        // FR-001・FR-002: タグエスケープ + <document> ラップ（classify 用）
+        const wrappedText = wrapWithDocumentTag(rawText);
+
         // 分類 → ルーティング
-        const classification = await classify(result.text, this.config);
+        const classification = await classify(wrappedText, this.config);
         const decision = await route(filePath, classification, this.config);
 
         // FR-009a: review 移動時に .meta.json を保存する（テキスト本文は含めない）
@@ -106,7 +180,8 @@ export class Queue {
           decision.moveType !== 'error'
         ) {
           try {
-            const contractInfo = await extractContractInfo(result.text, this.config);
+            // FR-009: contractInfo には rawText（タグラップ前の生テキスト）を使用する
+            const contractInfo = await extractContractInfo(rawText, this.config);
             contractSubject = contractInfo.contractSubject;
             contractPeriod = contractInfo.contractPeriod;
             // FR-005: .meta.json に contractSubject・contractPeriod を追記する
@@ -133,7 +208,8 @@ export class Queue {
           moveType: decision.moveType,
           // review になった場合は reason を error フィールドに記録（T010）
           ...(decision.reason ? { error: decision.reason } : {}),
-          ...(result.truncationWarning && !decision.reason ? { error: result.truncationWarning } : {}),
+          // FR-008: システム上限カット時の truncationWarning を独立フィールドに記録する
+          ...(systemLimitWarning ? { truncationWarning: systemLimitWarning } : {}),
           // FR-011: OCR 処理を経たファイルにのみ ocrEngine を転記する
           ...(result.ocrEngine ? { ocrEngine: result.ocrEngine } : {}),
           // FR-006: 契約情報（null 含む）を監査ログに記録する

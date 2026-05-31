@@ -1,6 +1,8 @@
 # JudgeFile
 
-JudgeFile は、監視ディレクトリに置かれた `.txt` / `.md` / `.pdf` ファイルを抽出・分類・振り分けし、監査ログに記録する Node.js CLI デーモンです。
+JudgeFile は、監視ディレクトリに置かれたファイルを抽出・分類・振り分けし、監査ログに記録する Node.js CLI デーモンです。
+
+対応形式: `.txt` / `.md` / `.pdf` / 画像（`.png` / `.jpg` / `.jpeg`）/ Office 文書（`.docx` / `.xlsx` / `.csv`）
 
 ## 特長
 
@@ -8,6 +10,9 @@ JudgeFile は、監視ディレクトリに置かれた `.txt` / `.md` / `.pdf` 
 - テキスト抽出結果を AI 分類に渡し、ルート先または reviewDir へ移動します
 - 監査ログを JSON Lines 形式で出力します
 - `.pdf` はテキスト層のある文書を対象に抽出します
+- 画像ファイルは OpenAI Vision API による OCR でテキストを抽出します
+- `.docx` / `.xlsx` / `.csv` は mammoth / xlsx ライブラリで抽出します
+- 「契約書」カテゴリと判定されたファイルは、契約対象・規約期間を追加抽出して `.meta.json` に記録します
 - `watchedExtensions` で監視対象拡張子を設定できます
 
 ## 要件
@@ -37,7 +42,7 @@ npm install
     "invoice": "/path/to/invoices",
     "contract": "/path/to/contracts"
   },
-  "watchedExtensions": [".txt", ".md", ".pdf"]
+  "watchedExtensions": [".txt", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".docx", ".xlsx", ".csv"]
 }
 ```
 
@@ -54,6 +59,8 @@ npm install
 - `model`: 使用する OpenAI モデル名です。既定値は `gpt-4o-mini` です
 - `apiTimeoutMs`: API 呼び出しのタイムアウトです。既定値は `30000` ミリ秒です
 - `watchedExtensions`: 監視する拡張子一覧です。既定値は `['.txt', '.md']` です
+- `maxImageSizeMB`: 画像ファイルの最大サイズです（MB 単位）。既定値は `10` です
+- `contractCategoryLabel`: 契約情報抽出を行うカテゴリラベルです。既定値は `'契約書'` です
 
 最小構成の例:
 
@@ -91,6 +98,25 @@ npm run dev
 - テキスト層のある PDF は通常の抽出パイプラインに入ります
 - スキャン画像のみの PDF は空テキストとして扱われ、AI 分類はスキップされます
 - パスワード保護 PDF や破損 PDF は失敗として処理されます
+
+## 画像ファイルの扱い
+
+- `.png` / `.jpg` / `.jpeg` は OpenAI Vision API（base64 インライン）を使って OCR でテキストを抽出します
+- `maxImageSizeMB` を超えるファイルは失敗として reviewDir に移動します
+- 監査ログに `ocrEngine: 'openai-vision'` が記録されます
+
+## Office 文書の扱い
+
+- `.docx`: `mammoth` で本文テキストを抽出します
+- `.xlsx`: `xlsx` ライブラリでシート内のセルテキストを結合します
+- `.csv`: UTF-8 で読み込み、各行をテキスト連結します
+
+## 契約情報抽出
+
+- AI 分類カテゴリが `contractCategoryLabel`（デフォルト: `'契約書'`）に一致したファイルに対して、追加の AI 呼び出しを行います
+- 抽出される情報: 契約対象（`contractSubject`）・規約期間（`contractPeriod`）
+- 結果は振り分け先の `.meta.json` に追記されます
+- 抽出に失敗しても振り分けは完了とみなされ、`contractExtractionError` として監査ログに記録されます
 
 ## テスト
 

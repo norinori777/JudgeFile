@@ -129,6 +129,8 @@ export interface AuditLogEntry {
   destination?: string;
   moveType?: MoveType;
   ocrEngine?: string;          // OCR 処理を経たファイルにのみ付与（FR-011）
+  truncationWarning?: string;  // システム上限（50,000 文字）カット時の警告（FR-008）
+  moderationCategories?: string[]; // Moderation ブロック時のフラグカテゴリ名（FR-005）
   // Round 7: 契約情報抽出
   contractSubject?: string | null;
   contractPeriod?: ContractPeriod | null;
