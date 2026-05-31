@@ -107,7 +107,7 @@ export interface CorrectionRecord {
 }
 
 /** 監査ログに記録するイベント種別 */
-export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped' | 'rejected';
+export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped' | 'rejected' | 'redaction';
 
 /** イベントに対応する結果分類 */
 export type AuditResult = 'ok' | 'error' | 'skip';
@@ -142,6 +142,17 @@ export interface AuditLogEntry {
     /** 検証種別: 'path' | 'size' | 'mime' | 'circular' */
     validationType: string;
   };
+  // Round 10: 監査・コンプライアンス強化
+  /** 前エントリの currHash。最初のエントリは 'genesis' (FR-001) */
+  prevHash?: string;
+  /** HMAC-SHA256(JSON.stringify({...entry, prevHash}), AUDIT_HMAC_SECRET) (FR-001) */
+  currHash?: string;
+  /** SHA-256(匿名化対象識別子) — event='redaction' 時のみ (FR-009) */
+  redactedIdentifierHash?: string;
+  /** 匿名化したエントリ数 — event='redaction' 時のみ */
+  redactedCount?: number;
+  /** 匿名化実施日時 ISO 8601 — event='redaction' 時のみ */
+  redactedAt?: string;
 }
 
 // ── Round 7: 契約情報抽出 ──
@@ -183,4 +194,26 @@ export interface SecurityValidationResult {
   detectedMimeType?: string;
   /** 各検証ステップの詳細 */
   validations: ValidationDetail[];
+}
+
+// ── Round 10: 監査・コンプライアンス強化 ──
+
+/** 完全性検証の個別違反情報 (FR-002) */
+export interface VerificationViolation {
+  /** 0-based インデックス */
+  entryIndex: number;
+  /** 対象エントリの timestamp */
+  timestamp: string;
+  /** 違反種別 */
+  reason: 'hash_mismatch' | 'missing_hash' | 'unexpected_chain_break';
+}
+
+/** 完全性検証 CLI の返却型 (FR-002) */
+export interface VerificationResult {
+  filePath: string;
+  totalEntries: number;
+  passed: boolean;
+  violations: VerificationViolation[];
+  /** チェーンリセット点の数（redaction マーカー数） */
+  redactionSegments: number;
 }

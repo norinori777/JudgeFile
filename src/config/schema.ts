@@ -58,6 +58,16 @@ export const ConfigSchema = z.object({
   maxFileSizeMB: z.object({ default: z.number().int().min(1).max(1000).default(50) })
     .catchall(z.number().int().min(1).max(1000))
     .default({ default: 50 }),
+
+  // ── Round 10: 監査・コンプライアンス強化 ──
+
+  /** ログ保持・ローテーション設定 (FR-003, FR-004, FR-008) */
+  logRetention: z.object({
+    /** ログファイル保持日数。0 = 削除しない（デフォルト: 365） */
+    retentionDays: z.number().int().min(0).default(365),
+    /** ファイルサイズ上限（MB）。超過でローテーション（デフォルト: 10） */
+    maxLogSizeMB: z.number().int().min(1).max(1000).default(10),
+  }).default({ retentionDays: 365, maxLogSizeMB: 10 }),
 });
 
 /** ConfigSchema から推論した型 */
