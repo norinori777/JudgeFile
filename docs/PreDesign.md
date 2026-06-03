@@ -390,3 +390,118 @@ if (usage) {
        - SheetJS (`xlsx`) は、通常無償版（Community Edition）が使われますが、高度な書き込み・数式処理などを行う場合は制限や有料ライセンス（Pro/Enterprise）への移行が必要となる場合があります。今回のユースケースである「セルのプレーンテキスト抽出」の範囲であれば、無償版（Apache 2.0）のままで問題ありません。
 
 **優先度の高い対応順**としては、①認証・テナント分離 → ②ファイルトラバーサル等のセキュリティ修正 → ③API コスト制御 → ④リトライ・監視 の順が現実的です。
+
+
+
+Read [](file:///c%3A/work/judgeFileSdd/src/index.ts#1-1), lines 1 to 60
+
+Read [](file:///c%3A/work/judgeFileSdd/src/router/index.ts#1-1), lines 1 to 80
+
+Read [](file:///c%3A/work/judgeFileSdd/src/classifier/index.ts)
+
+Read [](file:///c%3A/work/judgeFileSdd/src/queue/index.ts#1-1), lines 1 to 80
+
+Read [](file:///c%3A/work/judgeFileSdd/src/watcher/index.ts#1-1), lines 1 to 60
+
+Read [](file:///c%3A/work/judgeFileSdd/src/extractor/index.ts)
+
+Read [](file:///c%3A/work/judgeFileSdd/src/config/schema.ts)
+
+Read [](file:///c%3A/work/judgeFileSdd/src/logger/integrity.ts#1-1), lines 1 to 50
+
+Read [](file:///c%3A/work/judgeFileSdd/src/extractor)
+
+Read [](file:///c%3A/work/judgeFileSdd/src/extractor/sanitize.ts)
+
+Read [](file:///c%3A/work/judgeFileSdd/src/extractor/security.ts#1-1), lines 1 to 80
+
+Read [](file:///c%3A/work/judgeFileSdd/src/reviewer/index.ts#1-1), lines 1 to 80
+
+コードベース全体を把握できたので、改善・追加機能の提案をまとめます。
+
+---
+
+## 改善・追加機能の提案
+
+### 🔴 重要度：高
+
+**1. リトライ機能の欠如（index.ts）**  
+コメントに「リトライは行わない（T011）」と書かれているが、API の 429 や一時的な通信エラーは Exponential Backoff でリトライするのが標準的です。現状では単一障害でファイルが `reviewDir` に落ちてしまいます。
+
+```typescript
+// 例：p-retry などを使った指数的リトライ
+import pRetry from 'p-retry';
+const result = await pRetry(() => classify(text, config), {
+  retries: 3,
+  minTimeout: 1000,
+  factor: 2,
+  shouldRetry: (err) => err.message.includes('429') || err.message.includes('timeout'),
+});
+```
+
+---
+
+**2. `seenKeys` の無制限メモリ成長（index.ts）**  
+`seenKeys` は `Set<string>` でプロセス終了まで追加され続けます。長期稼働では OOM のリスクがあります。
+
+```typescript
+// 上限を設けて古いエントリを削除する（LRU 的な処理）
+if (seenKeys.size > 10_000) {
+  const firstKey = seenKeys.values().next().value;
+  seenKeys.delete(firstKey);
+}
+```
+
+---
+
+**3. `resolveDestination` の TOCTOU 競合（index.ts）**  
+`access()` でファイル存在確認後に `rename()` するまでの間に別プロセスが同名ファイルを作成する可能性があります。`O_EXCL` フラグで排他書き込みするか、UUID をサフィックスに使うのが確実です。
+
+---
+
+### 🟡 重要度：中
+
+**4. グレースフルシャットダウンが未実装（index.ts）**  
+`SIGTERM`/`SIGINT` を受けても処理中のキューが空になるのを待ちません。ファイル移動中断によるデータ破損リスクがあります。
+
+```typescript
+process.on('SIGTERM', async () => {
+  watcher.close();
+  await queue.onIdle(); // 処理中ジョブの完了を待機
+  process.exit(0);
+});
+```
+
+---
+
+**5. ヘルスチェック・統計エンドポイントがない**  
+現在は stdio への出力のみで、外部から稼働状況を確認する手段がありません。簡易な HTTP ヘルスチェック（例: `GET /health`）を追加すると、監視ツールや Docker のヘルスチェックに対応できます。
+
+---
+
+**6. `seenKeys` の再起動後リセット問題（index.ts）**  
+再起動すると `seenKeys` がリセットされ、再起動前に処理済みのファイルが再処理されます。`ignoreInitial: true` で防いでいますが、再起動後に届いた既処理ファイルは防げません。処理済みファイルのハッシュを SQLite や JSON ファイルで永続化するのが根本解決です。
+
+---
+
+**7. 契約情報の差分追跡がない（contract.ts）**  
+同一ファイルが更新された場合（ファイル名が同じ）、前回の抽出結果と比較して変更点を記録する仕組みがありません。バージョン管理機能として有用です。
+
+---
+
+### 🟢 重要度：低
+
+**8. .env が .gitignore に含まれているか確認が必要**  
+.env には API キーと HMAC シークレットが含まれており、誤ってコミットされるリスクがあります。
+
+**9. `corrections.jsonl` の HMAC 保護がない（index.ts）**  
+監査ログ（`audit-*.jsonl`）は HMAC チェーンで保護されていますが、人間レビューの修正記録（`corrections.jsonl`）は保護されていません。改ざんされても検知できません。
+
+**10. `watchedExtensions` の設定と実際の `extract()` の対応がずれる可能性**  
+`config.watchedExtensions` に `.gif` や `.webp` を追加しても `extractor/index.ts` の `switch` に対応するケースがないためエラーになります。設定値と実装の対応リストを単一の定数で管理すべきです。
+
+---
+
+最も優先度が高いのは **①リトライ** と **②seenKeys メモリリーク** と **④グレースフルシャットダウン** の3点です。どれかについて実装を進めますか？ 
+
+

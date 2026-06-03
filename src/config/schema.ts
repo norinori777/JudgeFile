@@ -59,6 +59,25 @@ export const ConfigSchema = z.object({
     .catchall(z.number().int().min(1).max(1000))
     .default({ default: 50 }),
 
+  // ── Round 11: デーモン安定性・信頼性強化 ──
+
+  /** 処理済みキーの最大保持数（LRU 上限、デフォルト: 10,000） */
+  seenKeysMaxSize: z.number().int().min(1).default(10_000),
+
+  /** グレースフル停止タイムアウト（ミリ秒、デフォルト: 30,000） */
+  gracefulShutdownTimeoutMs: z.number().int().min(1_000).max(300_000).default(30_000),
+
+  /** HTTP ヘルスチェックサーバー設定（省略時は無効） */
+  healthCheck: z
+    .object({
+      /** 待ち受けポート番号 (1–65535) */
+      port: z.number().int().min(1).max(65_535),
+    })
+    .optional(),
+
+  /** corrections.jsonl のファイルパス（省略時は logFile と同ディレクトリの corrections.jsonl） */
+  correctionsFile: z.string().optional(),
+
   // ── Round 10: 監査・コンプライアンス強化 ──
 
   /** ログ保持・ローテーション設定 (FR-003, FR-004, FR-008) */

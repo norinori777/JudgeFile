@@ -18,11 +18,13 @@
  */
 
 import { createInterface } from 'node:readline';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadConfig } from '../config/loader.js';
 import { moveFile, resolveDestination } from '../router/index.js';
 import type { CorrectionRecord, ReviewItem } from '../types/index.js';
+import { computeHmac } from '../logger/integrity.js';
 
 // ──────────────────────────────────────────────
 // エントリポイント
@@ -70,7 +72,7 @@ async function main(): Promise<void> {
     process.exit(0);
   });
 
-  const correctionsPath = join(dirname(config.logFile), 'corrections.jsonl');
+  const correctionsPath = config.correctionsFile ?? join(dirname(config.logFile), 'corrections.jsonl');
 
   for (const metaPath of metaFiles) {
     if (interrupted) break;
@@ -283,16 +285,53 @@ async function cleanupMeta(metaPath: string): Promise<void> {
 }
 
 /**
- * CorrectionRecord を corrections.jsonl に JSONL 形式で追記する（FR-015: テキスト本文なし）
- * ファイルが存在しない場合は自動作成される。
+ * corrections.jsonl の最終エントリの currHash を同期的に読み取る（T031）。
+ * ファイルが空・存在しない・最終エントリに currHash がない場合は 'genesis' を返す。
+ */
+function readLastCurrHashFromCorrections(filePath: string): string {
+  try {
+    const content = readFileSync(filePath, 'utf-8').trimEnd();
+    if (!content) return 'genesis';
+    const lines = content.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i]?.trim();
+      if (!line) continue;
+      const parsed = JSON.parse(line) as Partial<CorrectionRecord>;
+      if (parsed.currHash) return parsed.currHash;
+    }
+    return 'genesis';
+  } catch {
+    return 'genesis';
+  }
+}
+
+/**
+ * CorrectionRecord を corrections.jsonl に JSONL 形式で追記する（FR-015: テキスト本文なし）。
+ * hmacSecret が 1 文字以上の場合は prevHash/currHash チェーンを付与する（FR-009）。
+ * hmacSecret が未設定 / 空の場合は警告を出して HMAC なしで追記する。
  */
 export async function appendCorrectionRecord(
   correctionsPath: string,
   record: CorrectionRecord,
+  hmacSecret?: string,
 ): Promise<void> {
+  const secret = hmacSecret ?? process.env.AUDIT_HMAC_SECRET ?? '';
+  let recordToWrite: CorrectionRecord;
+
+  if (secret.length > 0) {
+    const prevHash = readLastCurrHashFromCorrections(correctionsPath);
+    const currHash = computeHmac(JSON.stringify({ ...record, prevHash }), secret);
+    recordToWrite = { ...record, prevHash, currHash };
+  } else {
+    console.warn(
+      '[Review] AUDIT_HMAC_SECRET が未設定のため corrections.jsonl の HMAC 保護がスキップされます。',
+    );
+    recordToWrite = record;
+  }
+
   try {
     await fs.mkdir(dirname(correctionsPath), { recursive: true });
-    await fs.appendFile(correctionsPath, JSON.stringify(record) + '\n', 'utf-8');
+    await fs.appendFile(correctionsPath, JSON.stringify(recordToWrite) + '\n', 'utf-8');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[Review] corrections.jsonl への追記に失敗しました: ${msg}`);
@@ -303,7 +342,11 @@ export async function appendCorrectionRecord(
 // 起動
 // ──────────────────────────────────────────────
 
-main().catch((err) => {
-  console.error('[Review] 予期しないエラー:', err);
-  process.exit(1);
-});
+const isExecutedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isExecutedDirectly) {
+  main().catch((err) => {
+    console.error('[Review] 予期しないエラー:', err);
+    process.exit(1);
+  });
+}

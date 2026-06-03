@@ -6,6 +6,7 @@ import type { Config } from '../config/schema.js';
 import type { AuditLogEntry } from '../types/index.js';
 import { writeLog } from '../logger/index.js';
 import { Queue } from '../queue/index.js';
+import type { SeenKeyStore } from '../seen-key-store.js';
 
 /**
  * 監視フォルダの変更を検知し、.txt / .md ファイルを Queue に追加する。
@@ -15,9 +16,8 @@ import { Queue } from '../queue/index.js';
  * - バックプレッシャー: キューが maxQueueSize に達したとき watcher を一時停止する（US2 / T016）
  * - 重複検知: ファイル名 + サイズ + mtime の組み合わせで Set 管理し重複をスキップする（US2 / T017）
  */
-export function startWatcher(config: Config, queue: Queue): FSWatcher {
-  // 重複検知用 Set（name + size + mtime のキーで管理）
-  const seenKeys = new Set<string>();
+export function startWatcher(config: Config, queue: Queue, seenKeyStore: SeenKeyStore): FSWatcher {
+  // SeenKeyStoreで重複検知を行う（has() のみ使用— add() は queue が completed 時に呼ぶ）
   const supportedExtensions = new Set(config.watchedExtensions);
 
   const watcher = chokidar.watch(config.watchDir, {
@@ -47,7 +47,7 @@ export function startWatcher(config: Config, queue: Queue): FSWatcher {
       fileKey = `${basename(filePath)}:unknown`;
     }
 
-    if (seenKeys.has(fileKey)) {
+    if (seenKeyStore.has(fileKey)) {
       // 重複: skipped ログを記録してキューに積まない（T017）
       const skippedEntry: AuditLogEntry = {
         id: randomUUID(),
@@ -58,7 +58,7 @@ export function startWatcher(config: Config, queue: Queue): FSWatcher {
       writeLog(skippedEntry);
       return;
     }
-    seenKeys.add(fileKey);
+    // watcher は has() のみ使用。add() は queue の completed 後に呼ばれる（FR-005）
 
     // バックプレッシャー: キューが満杯の場合は watcher を一時停止する（T016）
     if (queue.size >= config.maxQueueSize) {
@@ -67,7 +67,7 @@ export function startWatcher(config: Config, queue: Queue): FSWatcher {
       watcher.add(config.watchDir);
     }
 
-    queue.enqueue(filePath);
+    queue.enqueue(filePath, fileKey);
   });
 
   watcher.on('error', (err: unknown) => {

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { promises as fs } from 'node:fs';
 import { loadConfig } from './config/loader.js';
 import { initLogger, writeLog, getLogDir } from './logger/index.js';
@@ -7,6 +7,9 @@ import { runRetentionCleanup } from './logger/retention.js';
 import { validateConfigSecurity } from './config/validator.js';
 import { Queue } from './queue/index.js';
 import { startWatcher } from './watcher/index.js';
+import { SeenKeyStore } from './seen-key-store.js';
+import { startHealthServer } from './health-server.js';
+import { setupGracefulShutdown } from './shutdown.js';
 
 async function main(): Promise<void> {
   // AUDIT_HMAC_SECRET バリデーション（FR-007）: 未設定または32文字未満の場合は起動拒否
@@ -55,21 +58,22 @@ async function main(): Promise<void> {
   // 起動時設定バリデーション: 循環参照チェック（FR-001b）
   validateConfigSecurity(config);
 
-  const queue = new Queue(config);
-  const watcher = startWatcher(config, queue);
+  // US1/US4: SeenKeyStore — LRU 上限付き処理済みキー管理（FR-001, FR-005）
+  const seenKeysPath = join(dirname(config.logFile), 'seen-keys.jsonl');
+  const seenKeyStore = new SeenKeyStore(config.seenKeysMaxSize, seenKeysPath);
+
+  const queue = new Queue(config, seenKeyStore);
+  const watcher = startWatcher(config, queue, seenKeyStore);
+
+  // US5: ヘルスチェックサーバー（省略可）（FR-007）
+  const healthServer = config.healthCheck?.port
+    ? startHealthServer(config.healthCheck.port, () => ({ queueSize: queue.size }))
+    : undefined;
 
   console.log(`[JudgeFile] 起動しました。監視ディレクトリ: ${config.watchDir}`);
 
-  const shutdown = async (): Promise<void> => {
-    console.log('\n[JudgeFile] シャットダウンしています...');
-    await watcher.close();
-    await queue.onIdle();
-    console.log('[JudgeFile] 停止しました。');
-    process.exit(0);
-  };
-
-  process.on('SIGINT', () => { void shutdown(); });
-  process.on('SIGTERM', () => { void shutdown(); });
+  // US2: グレースフル停止（FR-002, FR-003, FR-011）
+  setupGracefulShutdown(watcher, queue, config, seenKeyStore, healthServer);
 }
 
 main().catch((err: unknown) => {
@@ -77,3 +81,4 @@ main().catch((err: unknown) => {
   console.error(`[JudgeFile] 起動エラー: ${message}`);
   process.exit(1);
 });
+

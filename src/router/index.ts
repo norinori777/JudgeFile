@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { basename, extname, join, parse } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Config } from '../config/schema.js';
 import type { ClassificationResult, RouteDecision } from '../types/index.js';
 
@@ -32,8 +33,8 @@ export async function resolveDestination(filePath: string, destDir: string): Pro
   const candidate = join(destDir, basename(filePath));
   try {
     await fs.access(candidate);
-    // ファイルが存在する → タイムスタンプ付き名前を使う
-    return join(destDir, `${stem}-${Date.now()}${ext}`);
+    // ファイルが存在する → UUID サフィックス付き名前を使う（TOCTOU 対策、FR-004）
+    return join(destDir, `${stem}-${randomUUID()}${ext}`);
   } catch {
     // access が失敗 = ファイルが存在しない → そのまま使う
     return candidate;

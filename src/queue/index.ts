@@ -12,13 +12,17 @@ import { route, moveFile, resolveDestination } from '../router/index.js';
 import { extractContractInfo, updateMetaJson } from '../extractor/contract.js';
 import { applySystemHardLimit, wrapWithDocumentTag, moderateText } from '../extractor/sanitize.js';
 import { promises as fs } from 'node:fs';
+import type { SeenKeyStore } from '../seen-key-store.js';
 
 export class Queue {
   private readonly pQueue: PQueue;
   private readonly config: Config;
+  private readonly activeFiles = new Set<string>();
+  private readonly seenKeyStore?: SeenKeyStore;
 
-  constructor(config: Config) {
+  constructor(config: Config, seenKeyStore?: SeenKeyStore) {
     this.config = config;
+    this.seenKeyStore = seenKeyStore;
     this.pQueue = new PQueue({ concurrency: config.maxConcurrency });
   }
 
@@ -37,13 +41,20 @@ export class Queue {
     return this.pQueue.onIdle();
   }
 
+  /** 現在処理中のファイルパスの集合（グレースフル停止時に参照）（FR-002） */
+  getActiveFiles(): ReadonlySet<string> {
+    return this.activeFiles;
+  }
+
   /**
    * ファイルパスをキューに追加する。
    * 各ジョブは started → extract() → completed/failed のフローで監査ログを記録する。
    * 例外はすべてキャッチして failed ログを記録し、飲み込む（US3 / T018）。
    */
-  enqueue(filePath: string): void {
+  enqueue(filePath: string, fileKey?: string): void {
     void this.pQueue.add(async () => {
+      this.activeFiles.add(filePath);
+      try {
       // OpenAI クライアントを enqueue スコープで生成し moderateText / classify 両方で共用する
       const client = new OpenAI({
         apiKey: process.env.OPENAI_API_KEY,
@@ -252,6 +263,10 @@ export class Queue {
           ...(contractExtractionError ? { contractExtractionError } : {}),
         };
         writeLog(completedEntry);
+        // US4: completed 時のみ seenKeyStoreにキーを登録する（FR-005）
+        if (fileKey) {
+          this.seenKeyStore?.add(fileKey);
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
 
@@ -279,6 +294,9 @@ export class Queue {
         };
         writeLog(failedEntry);
         // 例外を飲み込んで次のジョブを継続する（US3 / T012）
+      }
+      } finally {
+        this.activeFiles.delete(filePath);
       }
     });
   }

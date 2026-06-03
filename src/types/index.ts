@@ -104,10 +104,14 @@ export interface CorrectionRecord {
   action: 'approved' | 'corrected';
   /** オペレーターが承認した日時（ISO 8601） */
   timestamp: string;
+  /** HMAC チェーン: 前エントリの currHash（最初のエントリは 'genesis'）（FR-009） */
+  prevHash?: string;
+  /** HMAC チェーン: HMAC-SHA256({...record, prevHash}, AUDIT_HMAC_SECRET)（FR-009） */
+  currHash?: string;
 }
 
 /** 監査ログに記録するイベント種別 */
-export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped' | 'rejected' | 'redaction';
+export type AuditEvent = 'started' | 'completed' | 'failed' | 'skipped' | 'rejected' | 'redaction' | 'stopped';
 
 /** イベントに対応する結果分類 */
 export type AuditResult = 'ok' | 'error' | 'skip';
@@ -128,6 +132,8 @@ export interface AuditLogEntry {
   confidentiality?: 'low' | 'medium' | 'high';
   destination?: string;
   moveType?: MoveType;
+  /** グレースフル停止タイムアウト時の停止理由（event='stopped' 時のみ）（FR-011） */
+  reason?: string;
   ocrEngine?: string;          // OCR 処理を経たファイルにのみ付与（FR-011）
   truncationWarning?: string;  // システム上限（50,000 文字）カット時の警告（FR-008）
   moderationCategories?: string[]; // Moderation ブロック時のフラグカテゴリ名（FR-005）
